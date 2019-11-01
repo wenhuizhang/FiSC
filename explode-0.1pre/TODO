@@ -1,0 +1,123 @@
+#####################################################################
+	Sanity Checks/Debugging Support
+
+1. need a way to verify if the thread is scheduled or not.  check
+linux scheduler.  can also hack the runnable flag field for each
+task_struct
+
+2. for invalid bh->b_data, we need to print out an error message,
+so that we know when our system fucks up
+
+3. our kernel modules ignore errors silently.  we need to at least
+print out a warning.  otherwise, it's impossible to figure out
+what's go wrong.
+
+#####################################################################
+	Optimizations
+
+1. Have a chunk database using collision-resistent hash.  Then the
+ekm module can just write the hash in the log.
+
+2. lots of redundant perm checking.  should generate a sig for
+(disk, log).  can also use this as the signature for each state.
+
+#####################################################################
+	Rewrite
+
+1. redesign the module interface.  the first argument of every api
+is the ekm handle, which is equivalent to an id.  can make
+everything a RPC by default.  shortcut local RPC calls as an optimization
+
+e.g.
+
+client side:
+rdd_get_disk(node_id, rdd_fd, data, size) {
+	if(node_id is remote) {
+		get socket for node_id
+		RPC(rdd_get_disk, node_id...)
+	}
+	else
+		ioctl(rdd_fd...)
+}
+
+fisc_open_dev(node_id, path) {
+	if(node_id is remote) {
+		get socket for node_id
+		RPC(fisc_open_dev, node_id)
+	}
+	else {
+		get fd for ekm
+		ioctl(fd, ...)
+}
+
+The RPC part of ekm lib definitely needs a rewrte
+
+2. abstract function of AbstFS class.  we want to abstract any
+file, not just the file we write.
+
+3. ekm, fisc, explode namespace polution. any crash simulation api
+prefix with x_, model checking lib prefix with mcl, ekm prefix
+with ekm, etc
+
+4. need an accurate way to control thread scheduling.  can have a
+lock. run one thread at a time.
+
+5. run bdflush, but use the trick in spec ex: remove buffers for
+our special device.
+
+6. rdd driver needs lock.  ioctl needs to be protected by
+lock. otherwise, kernel can write to rdd while we copying
+the sem doesn't help, because rdd_request locks nothing.
+ask CAN: why a lock plus a disk_copy_sem???
+
+#####################################################################
+2. 
+
+	New Code
+
+1. A kernel module that logs all the system calls to a device if
+the device is traced by ekm.  We can do three things with this
+log: first, we can permute at system call level.  Second, we can
+do layer-internl checks.  For example, by observing writes to md
+and writes issued by md, we can perform raid checks.  Third, we
+can monitor reads/writes issued by fsck, so we can check crashes
+during recovery.
+	
+2. Test driver sometimes knows the stable FS or part of it (e.g.,
+after sync or fsync), so it can perform "external" checks.
+Internally, each layer can perform its own checks, too.  Example
+is given in above paragraph.  Both checks are useful.  Without the
+external ones, if app don't call fsync, then we don't know what to
+check.  Without the internal ones, we may miss bugs if test driver
+doesn't check certain things.  Need to figure out the interfaces
+to perform both checks.
+
+3. Add raid, NFS, Verson Control Softwares from fisc.
+
+4. external check.  A file must be there after fsync.  now we just
+check that immediately after fsync.  actually, it should be true
+until we remove the file and commit the removal.  how?
+
+the actual stable fs can be
+known stable fs + any operations not stable
+
+sync, creat, rm
+stable fs after sync, maybe creat or rm or both
+
+fsync, write, rm
+fsynced file, maybe write or rm or both
+
+mount sync
+stable fs = abstract fs
+
+open osync
+stable file = abstract file
+
+5. for VM
+(vmware-vdiskmanager)
+	check compacted disk
+	check defrag
+
+check snapshot and revert
+
+check vmdisk on a block device, e.g. /dev/rdd0

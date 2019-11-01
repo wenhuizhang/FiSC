@@ -1,0 +1,118 @@
+BEGIN
+fs::type ext2
+fs::blk_size 1024
+rdd::sectors 120
+OR
+fs::type ext3
+fs::blk_size 1024
+rdd::sectors 4096
+OR
+fs::type ext2
+fs::blk_size 4096
+rdd::sectors 120
+OR
+fs::type ext3
+fs::blk_size 4096
+rdd::sectors 4096
+OR
+fs::type JFS
+fs::blk_size 4096
+rdd::sectors 65536
+OR
+fs::type ReiserFS
+fs::blk_size 4096
+rdd::sectors 65976
+OR
+fs::type Reiser4
+fs::blk_size 4096
+rdd::sectors 65976
+OR
+fs::type XFS
+fs::blk_size 4096
+rdd::sectors 131072
+OR
+fs::type msdos
+fs::blk_size 4096
+rdd::sectors 65536
+OR
+fs::type vfat
+fs::blk_size 4096
+rdd::sectors 65536
+OR
+fs::type ntfs
+fs::blk_size 4096
+rdd::sectors 65536
+OR
+fs::type hfs
+fs::blk_size 4096
+rdd::sectors 65536
+OR
+fs::type hfsplus
+fs::blk_size 4096
+rdd::sectors 65536
+END
+
+#BEGIN_ZERO_NONSELECTED
+BEGIN
+check::sync 1
+OR
+check::umount 1
+OR
+check::fsync 1
+OR
+check::o_sync 1
+OR
+check::mount_sync 1
+END
+
+BEGIN
+fstest::mutate creat
+explode::simulation 1
+explode::simulation_length 1
+OR
+fstest::mutate mkdir
+explode::simulation 1
+explode::simulation_length 1
+OR
+fstest::mutate unlink
+explode::simulation 1
+explode::simulation_length 1
+OR
+fstest::mutate rmdir
+explode::simulation 1
+explode::simulation_length 1
+OR
+fstest::mutate link
+explode::simulation 1
+explode::simulation_length 1
+OR
+fstest::mutate rename_file_to_new
+explode::simulation 1
+explode::simulation_length 1
+OR
+fstest::mutate rename_file_to_exist
+explode::simulation 1
+explode::simulation_length 1
+OR
+fstest::mutate rename_dir_to_new
+explode::simulation 1
+explode::simulation_length 1
+OR
+fstest::mutate rename_dir_to_exist
+explode::simulation 1
+explode::simulation_length 1
+OR
+fstest::mutate truncate_and_write
+explode::simulation 1
+explode::simulation_length 1
+OR
+fstest::mutate symlink
+explode::simulation 1
+explode::simulation_length 1
+END
+
+BEGIN
+ekm::choice_ioctl 0
+OR
+ekm::choice_ioctl 1
+END

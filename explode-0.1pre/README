@@ -1,0 +1,192 @@
+eXplode is a storage system checker.  It comes with a model checker (in
+directory mcl/) for real code instead of abstract models.  Model checking
+is a formal verification technique that systematically enumerates the
+possible execution paths of a system by starting from an initial state and
+repeatedly performing all possible actions to this state and its
+successors.  This state-space exploration makes rare actions such as
+network failures appear as often as common ones, thereby quickly driving
+the target system (i.e., the system we check) into corner cases where
+subtle bugs surface.
+
+eXplode's model checkier is a generic model checker that you can use to
+check other systems as well (not just storage systems).  To learn more
+information on using this model checker, please refer to mcl/README.
+
+Conventional model checking is heavyweight and difficult to apply to real
+systems; eXplode avoids the overheads associated with model checking using
+new checking architecture that checks a system in-situ, in its native
+environment.  This architecture makes it really easy to check new systems.
+For example, a lot of the checkers we write have only less than 100 lines
+of code.
+
+Most of the other code in eXplode implements a crash simulator.  With this
+simulator, you can check if your storage system correctly handles crashes
+and recoveries.  Note eXplode will not simply check random crashes that
+merely occur; it will systematically generate *possible* crashes by
+permuting modified disk blocks in the buffer cache.
+
+
+
+
+Quick Start
+==================
+
+1. Get the eXplode virtual machine (VM) image from
+http://www.cs.columbia.edu/~junfeng/explode, and start it with VMware Player (http://www.vmware.com/products/player).
+
+2. Boot eXplode VM with VMware Player, and in the grub boot menu, select
+"Ubuntu 8.04.1, kernel 2.6.24.3."  Use username "explode" and password
+"#explode" to log in.  The eXplode source tree is in ~/explode.  For the
+tree structure, refer to the Directory Structure below.
+
+3. To check a file system, go to directory "~/explode/check," and run
+"./check-fs."  All checkers are in directory "~/explode/check."  You can
+also check cvs by running "./check-cvs."
+
+4. To check a different file system, change fs::type and rdd::sectors in
+~/explode/explode.options; this file stores user options.  For all options
+eXplode supports, check out explode.default.options in the same directory.
+
+
+
+
+
+Installation from Source
+=========================
+
+Download and uncompress the eXplode source code:
+  % wget http://rcs.cs.columbia.edu/explode/explode-latest.tar.gz
+  % tar xzvf explode-latest.tar.gz
+  % mv explode-latest explode
+
+Download and uncompress an eXplode-supported kernel into explode/kernel
+  % cd explode/kernel
+  % wget http://www.kernel.org/pub/linux/kernel/v2.6/linux-2.6.24.3.tar.bz2
+  % tar xjvf linux-2.6.24.3.tar.bz2
+
+Patch, build and install the kernel
+  % cd linux-2.6.24.3
+  % patch -p1 < ../patch/linux-2.6.24.3
+  % make menuconfig
+  % ...
+
+Configure and build eXplode:
+
+  % cd explode
+  % configure --with-kernel=kernel/linux-2.6.24.3
+  % make
+
+
+
+
+
+Directory Structure
+===================
+
+The directory structure of eXplode is as follows:
+
+  explode/
+
+	mcl/                          Generic model checking library.  For details, 
+                                      read mcl/README
+
+	crash/                        Code in this directory implements crash 
+                                      and recovery checking
+
+	driver/                       Generic file system test driver
+
+        storage/                      Wrappers to storage system utilities,
+                                      such as mkfs and fsck
+
+	check/                        Checkers for different storage systems.
+
+        rpc/                          Wrappers to eXplode kernel modules below
+
+	rdd-linux-2.6/                Simple RAM disk driver for Linux 2.6
+
+	rdd-bsd-6.0/                  Simple RAM disk driver for FreeBSD 6.0
+
+        mtd-linux-2.6/                Simple flash disk driver for Linux 2.6
+
+	ekm-linux-2.6/                Explode kernel module for Linux 2.6
+
+        ekm-bsd-6.0/                  Explode kernel module for FreeBSD 6.0
+
+  kernel/
+  
+        patches/                      eXplode kernel patches
+
+        linux-2.6.24/                 Full Linux kernel tree with eXplode patch applied
+
+
+
+
+Configure eXplode
+====================
+
+You can configure eXplode by providing an explode.options file in the
+directory where you run an eXplode executable.  To see all available
+options, run the following command
+
+% find . -name \*.default.options -exec cat {} \;
+
+This command essentially prints out all default options stored in
+*.default.options files.
+
+
+
+
+Re-building After You've Made Changes
+==================
+
+- Compiling eXplode
+
+    eXplode uses autoconf and automake. If you have only modified existing
+    files, re-building eXplode is easy.  Simply run:
+       
+       explode@explode-vm:~/explode$ make
+
+    If you add new files or directories, add them to the corresponding Makefile.am, then:
+
+       explode@explode-vm:~/explode$ ./setup
+       explode@explode-vm:~/explode$ ./configure
+       explode@explode-vm:~/explode$ make       
+
+
+- Compiling and installing the kernel
+    
+    Normally you wouldn't need to touch the kernel.  But if you do, use
+    the following instructions to install a new kernel:
+
+    explode@explode-vm:~/explode/kernel/linux-2.6.24$ make bzImage
+    [this may take a while ...]
+
+    explode@explode-vm:~/explode/kernel/linux-2.6.24$ sudo cp arch/i386/boot/bzImage /boot/vmlinuz-2.6.24
+    [this installs the new kernel]
+
+
+- Updating eXplode
+
+  We use git (http://git-scm.com/) to manage eXplode source.  To update eXplode, simply run:
+
+       explode@explode-vm:~/explode$ git pull
+
+
+
+
+Checking a New Storage System
+==================
+
+Three steps:
+
+1. Create a checker
+
+2. Create a storage component
+
+3. Assemble a checking stack
+
+You'll find plenty of storage component examples in storage/ and test
+driver examples in driver/ and check/
+
+For more details, please refer to the eXplode paper
+(http://rcs.cs.columbia.edu/papers/yang_osdi06.pdf).
