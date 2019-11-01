@@ -1,0 +1,15 @@
+top_srcdir = @top_srcdir@
+KERNEL_DIR = @KERNEL_DIR@
+
+obj-m := ekm.o
+ekm-objs := ../ekm-common/ekm_log_buf.o ekm_log.o ekm_thread.o ekm_choice.o ekm_main.o
+
+# we're going to use linux kernel's Makefiles.  surppress whatever
+# make flags we passed
+unexport MAKEFLAGS
+
+all:
+	make -C $(KERNEL_DIR) SUBDIRS=$(shell /bin/pwd) modules
+
+clean:
+	rm -f *.o *.ko *.mod.c .*.o.cmd .*.ko.cmd

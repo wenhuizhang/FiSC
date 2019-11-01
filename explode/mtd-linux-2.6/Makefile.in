@@ -1,0 +1,14 @@
+top_srcdir = @top_srcdir@
+KERNEL_DIR = @KERNEL_DIR@
+
+obj-m := smtd.o
+
+# we're going to use linux kernel's Makefiles.  surppress whatever
+# make flags we passed
+unexport MAKEFLAGS
+
+all:
+	make -C $(KERNEL_DIR) SUBDIRS=$(shell /bin/pwd) modules
+clean:
+	rm -f *.o *.ko *.mod.c .*.o.cmd .*.ko.cmd
+

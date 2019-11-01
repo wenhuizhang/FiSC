@@ -1,0 +1,188 @@
+This is the model checker of eXplode.  It is very simple, less than 3K
+lines of code, yet has helped us found many serious errors in widely-used,
+well tested storage systems.
+
+Quick Start
+===========
+
+Download and uncompress the eXplode source code:
+  % wget http://rcs.cs.columbia.edu/explode/explode-latest.tar.gz
+  % tar xzvf explode-latest.tar.gz
+  % mv explode-latest explode
+
+Configure eXplode not to build kernel components:
+
+  % cd explode
+  % configure --with-kernel=no
+
+Build the model checker:
+  % cd mcl
+  % make
+
+Next, you need to construct a test harness in order to model checking your
+system.  The complete interface of the model checker is defined in file
+mcl.h.  The file testsuite/xywalk.C shows an example of how to use this
+model checker.  Below we describe the minimum you need to do to check a
+system.
+
+In your test harness, you should implement a subclass of TestHarness.  In
+this subclass, you have to at least implement two methods: init_state()
+and run_one_transition().  The init_state() creates an initial state of
+your system and the run_one_transition() method drives your system to do
+something then check if the results are correct.  If an error is found,
+call the error(...) function to let the model checker store a trace for
+later replay.  Your code will look like
+
+  #include <mcl.h>
+
+  class Test: public TestHarness {
+
+      void init_state(void) {
+          ... // initialize your system
+      }
+
+      void run_one_transition(void) {
+
+          ... // do some action
+
+          if(...) // check result of the action
+              error("bug", "should never reach this position!");
+      }
+  };
+
+You should also write a main function that contains the following lines:
+
+  int main(int argc, char *argv[])
+  {
+      xe_process_cmd_args(argc, argv);
+      xe_check(new Test);
+  }
+
+Function xe_process_cmd_args() and xe_check() are provided by our model
+checker; their names are pretty telling.
+
+That's it.  You can start model checking your system now by compiling and
+running your program.  When your code detects an error and calls the
+error(...)  function, our model checking will storage a trace in
+traces/<trace id>/trace.  To replay the error, simply run the following
+command (suppose your compiled your test harness as a.out)
+
+  % a.out -r trace/<trace id>/trace
+
+
+
+
+Choice Points
+============
+
+Your system may contain "choice points," i.e., program points where the
+execution may diverge and different actions may occur.  You can express
+these choice points to our model checking by calling xe_random(N), which
+will conceptually fork N different executions.  It will return 0, 1, ...,
+N-1 in the conceptually forked executions, so that you can perform a
+different action in each execution based on the return value.
+
+    switch(xe_random(n)) {
+        case 0:
+            ... // do action 0
+            break;
+        case 1:
+            ... // do action 1
+            break;
+        ...
+        case n-1:
+            ... // do action n-1
+            break;
+    }
+
+For example, to systematically explore both the success and failure case
+for each malloc call, you can instrument malloc as follows:
+    
+    void* wrap_malloc(size_t sz) {
+        if(xe_random(2) == 1)
+            return NULL;
+        return malloc(sz);
+    }
+    
+Since users frequently use xe_random to explore failures, we provide a
+xe_random_fail() method to facilitate this task.  Using this method, the
+above malloc example becomes
+
+    void* wrap_malloc(size_t sz) {
+        if(xe_random_fail() == 1)
+            return NULL;
+        return malloc(sz);
+    }
+
+xe_random_fail() is better than xe_random(2) for exploring failures
+because our model checker is smart and can bound the total number of
+failures occurring within each execution it explores.  This bound avoids
+to find pathological errors that require say 10 malloc failures to
+trigger, which you wouldn't care.
+
+For another example, check out the run_one_transition() method in
+testsuite/xywalk.C
+
+
+Avoid Redundancy
+==================
+
+The executions of your system may contain redundancy in the form of
+semantically equivalent states.  You can help our model checking avoid
+this kind of redundancy by providing a get_sig() method, which returns a
+signature of the system state when get_sig() is called.  When our model
+checker reaches a state, it will use this get_sig() method to get a state
+signature.  If it has seen this signature, it will simply ignore the
+state; otherwise, it will add the state to a search queue it manages, so
+that the state will be explored later.
+
+For an example, check out the get_sig() method in testsuite/xywalk.C
+
+
+
+Stateless Model Checking
+========================
+
+When you call xe_random(N) to conceptually fork N executions, the model
+checker cannot run all these executions at once (otherwise, eXplode will
+become a fork bomb).  Instead, eXplode will checkpoint these executions
+and restore them later for checking.
+
+The conventional way to create a checkpoint is to capture all data (e.g.,
+memory, open file table, and CPU context).  Since doing so is heavyweight,
+eXplode will simply record the choices, i.e., returns of xe_random(), as
+the checkpoint of a state.  Later, eXplode can restore a state by re-doing
+exactly the same choices.  This approach is called "stateless" model
+checking
+
+Note: for this approach to work, you need to expose all choices using
+xe_random() or reply on that the nondeterminism not captured will not
+affect the executions of your system too much.
+
+
+
+
+Stateful Model Checking
+========================
+
+You can also choose to store checkpoints instead of choice sequences.  To
+do that, you need to implement four methods of TestHarness:
+
+    int should_checkpoint(void); // determine if the current state needs
+                                 // to be checkpointed
+
+    int checkpoint_length(void); // return the length of the checkpoint in bytes
+
+    void checkpoint(char* buf, int len); // perform the checkpoint
+    
+    void restore(const char* buf, unsigned l); // restore a checkpoint
+
+Compared to the stateless approach, checkpoints trace space for time
+(re-doing choices).
+
+For an example, check out testsuite/xywalk-ckpt.C.
+
+
+
+
+

@@ -1,0 +1,79 @@
+BEGIN
+fs::type ext2
+fs::blk_size 1024
+rdd::sectors 120
+OR
+fs::type ext3
+fs::blk_size 1024
+rdd::sectors 4096
+OR
+fs::type ext2
+fs::blk_size 4096
+rdd::sectors 120
+OR
+fs::type ext3
+fs::blk_size 4096
+rdd::sectors 4096
+OR
+fs::type JFS
+fs::blk_size 4096
+rdd::sectors 65536
+OR
+fs::type ReiserFS
+fs::blk_size 4096
+rdd::sectors 65976
+OR
+fs::type Reiser4
+fs::blk_size 4096
+rdd::sectors 65976
+OR
+fs::type XFS
+fs::blk_size 4096
+rdd::sectors 131072
+OR
+fs::type msdos
+fs::blk_size 4096
+rdd::sectors 65536
+OR
+fs::type vfat
+fs::blk_size 4096
+rdd::sectors 65536
+OR
+fs::type ntfs
+fs::blk_size 4096
+rdd::sectors 65536
+OR
+fs::type hfs
+fs::blk_size 4096
+rdd::sectors 65536
+OR
+fs::type hfsplus
+fs::blk_size 4096
+rdd::sectors 65536
+END
+
+#BEGIN_ZERO_NONSELECTED
+BEGIN
+check::sync 1
+OR
+check::umount 1
+OR
+check::fsync 1
+OR
+check::o_sync 1
+OR
+check::mount_sync 1
+END
+
+BEGIN
+fstest::mutate all_op
+fstest::num_ops 8
+explode::simulation 1
+explode::simulation_length 1000
+END
+
+BEGIN
+ekm::choice_ioctl 0
+OR
+ekm::choice_ioctl 1
+END

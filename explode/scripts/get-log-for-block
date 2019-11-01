@@ -1,0 +1,10 @@
+#!/usr/bin/perl
+if(scalar @ARGV != 3) {
+    print "usage: $0 block-number block-size log-file\n";
+    exit(1);
+}
+$blk = shift @ARGV;
+$blk_size = shift @ARGV;
+$sector = $blk * ($blk_size/512);
+
+system("grep \"block=$blk,\\|sector=$sector,\" @ARGV");

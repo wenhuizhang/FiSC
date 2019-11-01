@@ -1,0 +1,1355 @@
+diff -ruN linux-2.6.15-orig/block/elevator.c linux-2.6.15/block/elevator.c
+--- linux-2.6.15-orig/block/elevator.c	2006-01-02 22:21:10.000000000 -0500
++++ linux-2.6.15/block/elevator.c	2009-09-18 21:38:53.000000000 -0400
+@@ -771,6 +771,10 @@
+ 	return count;
+ }
+ 
++/* EXPLODE */
++EXPORT_SYMBOL(elv_iosched_store);
++/* END EXPLODE */
++
+ ssize_t elv_iosched_show(request_queue_t *q, char *name)
+ {
+ 	elevator_t *e = q->elevator;
+diff -ruN linux-2.6.15-orig/block/ll_rw_blk.c linux-2.6.15/block/ll_rw_blk.c
+--- linux-2.6.15-orig/block/ll_rw_blk.c	2006-01-02 22:21:10.000000000 -0500
++++ linux-2.6.15/block/ll_rw_blk.c	2009-09-18 21:38:53.000000000 -0400
+@@ -33,6 +33,10 @@
+  */
+ #include <scsi/scsi_cmnd.h>
+ 
++/* EXPLODE */
++#include <linux/explode.h>
++/* END EXPLODE */
++
+ static void blk_unplug_work(void *data);
+ static void blk_unplug_timeout(unsigned long data);
+ static void drive_stat_acct(struct request *rq, int nr_sectors, int new_io);
+@@ -2892,6 +2896,10 @@
+ 		 */
+ 		blk_partition_remap(bio);
+ 
++		/* EXPLODE */
++		EXPLODE_HOOK(bio_start_write, bio);
++		/* END EXPLODE */
++
+ 		ret = q->make_request_fn(q, bio);
+ 	} while (ret);
+ }
+@@ -3183,6 +3191,13 @@
+ 
+ void end_request(struct request *req, int uptodate)
+ {
++	/* EXPLODE */
++	if(uptodate && fail_req(req))
++		uptodate = 0;
++	if(uptodate)
++		EXPLODE_HOOK(req_write_done, req);
++	/* END EXPLODE */
++
+ 	if (!end_that_request_first(req, uptodate, req->hard_cur_sectors)) {
+ 		add_disk_randomness(req->rq_disk);
+ 		blkdev_dequeue_request(req);
+diff -ruN linux-2.6.15-orig/drivers/md/md.c linux-2.6.15/drivers/md/md.c
+--- linux-2.6.15-orig/drivers/md/md.c	2006-01-02 22:21:10.000000000 -0500
++++ linux-2.6.15/drivers/md/md.c	2009-09-18 21:38:53.000000000 -0400
+@@ -455,6 +455,18 @@
+ 	bio->bi_private = &event;
+ 	bio->bi_end_io = bi_complete;
+ 	submit_bio(rw, bio);
++
++	/* EXPLODE */
++	{
++		/* YJF: looks like this bio gets changed.  its
++		   sector becomes old sector + nr_sectors, and its
++		   size becomes 0.  we'll need to either create a
++		   copy of bio or re-use old one.  for now just
++		   treat it as a sync */
++		EXPLODE_HOOK(bio_wait, bio);
++	}
++	/* END EXPLODE */
++
+ 	wait_for_completion(&event);
+ 
+ 	ret = test_bit(BIO_UPTODATE, &bio->bi_flags);
+diff -ruN linux-2.6.15-orig/fs/block_dev.c linux-2.6.15/fs/block_dev.c
+--- linux-2.6.15-orig/fs/block_dev.c	2006-01-02 22:21:10.000000000 -0500
++++ linux-2.6.15/fs/block_dev.c	2009-09-18 21:38:53.000000000 -0400
+@@ -864,6 +864,9 @@
+ 	bdev = ERR_PTR(error);
+ 	goto out;
+ }
++/* EXPLODE */
++EXPORT_SYMBOL(lookup_bdev);
++/* END EXPLODE */
+ 
+ /**
+  * open_bdev_excl  -  open a block device by name and set it up for use
+diff -ruN linux-2.6.15-orig/fs/buffer.c linux-2.6.15/fs/buffer.c
+--- linux-2.6.15-orig/fs/buffer.c	2006-01-02 22:21:10.000000000 -0500
++++ linux-2.6.15/fs/buffer.c	2009-09-19 01:10:35.000000000 -0400
+@@ -41,6 +41,124 @@
+ #include <linux/bitops.h>
+ #include <linux/mpage.h>
+ #include <linux/bit_spinlock.h>
++/* EXPLODE */
++#include <linux/explode.h>
++/* END EXPLODE */
++
++/* EXPLODE */
++struct buffer_head *ekm_commit_bh = NULL;
++struct bio *ekm_commit_bio = NULL;
++EXPORT_SYMBOL(ekm_commit_bh);
++EXPORT_SYMBOL(ekm_commit_bio);
++/* END EXPLODE */
++
++/* EXPLODE */
++#ifdef EXPLODE_TRACK_DIRTY_BIT
++void set_buffer_dirty(struct buffer_head *bh)
++{
++	set_bit(BH_Dirty, &(bh)->b_state);
++}
++void clear_buffer_dirty(struct buffer_head *bh)
++{
++	EXPLODE_HOOK(bh_clean, bh);
++	clear_bit(BH_Dirty, &(bh)->b_state);
++}
++void clear_buffer_dirty_no_log(struct buffer_head *bh)
++{
++	clear_bit(BH_Dirty, &(bh)->b_state);
++}
++int buffer_dirty(const struct buffer_head *bh)
++{
++	return test_bit(BH_Dirty, &(bh)->b_state);
++}
++int test_set_buffer_dirty(struct buffer_head *bh)
++{
++	return test_and_set_bit(BH_Dirty, &(bh)->b_state);
++}
++int test_clear_buffer_dirty(struct buffer_head *bh)
++{
++	int ret = test_and_clear_bit(BH_Dirty, &(bh)->b_state);
++	if(ret)
++		EXPLODE_HOOK(bh_clean, bh);
++	return ret;
++}
++
++void set_buffer_locked(struct buffer_head *bh)
++{
++	set_bit(BH_Lock, &(bh)->b_state);
++	EXPLODE_HOOK(bh_lock, bh);
++}
++void clear_buffer_locked(struct buffer_head *bh)
++{
++	EXPLODE_HOOK(bh_unlock, bh);
++	clear_bit(BH_Lock, &(bh)->b_state);
++}
++int buffer_locked(const struct buffer_head *bh)
++{
++	return test_bit(BH_Lock, &(bh)->b_state);
++}
++int test_set_buffer_locked(struct buffer_head *bh)
++{
++	int ret = test_and_set_bit(BH_Lock, &(bh)->b_state);
++	if(!ret)
++		EXPLODE_HOOK(bh_lock, bh);
++	return ret;
++}
++int test_clear_buffer_locked(struct buffer_head *bh)
++{
++	int ret = test_and_clear_bit(BH_Lock, &(bh)->b_state);
++	if(ret)
++		EXPLODE_HOOK(bh_unlock, bh);
++	return ret;
++}
++
++void wait_on_buffer(struct buffer_head *bh)
++{
++	might_sleep();
++	if (buffer_locked(bh) || atomic_read(&bh->b_count) == 0)
++		__wait_on_buffer(bh);
++}
++
++void lock_buffer(struct buffer_head *bh)
++{
++	might_sleep();
++	if (test_set_buffer_locked(bh)) {
++		__lock_buffer(bh);
++		EXPLODE_HOOK(bh_lock, bh);
++	}
++}
++
++void lock_buffer_no_log(struct buffer_head *bh)
++{
++	might_sleep();
++	if(test_and_set_bit(BH_Lock, &(bh)->b_state))
++		__lock_buffer(bh);
++}
++
++void fastcall unlock_buffer_no_log(struct buffer_head *bh)
++{
++	clear_bit(BH_Lock, &(bh)->b_state);
++	smp_mb__after_clear_bit();
++	wake_up_bit(&bh->b_state, BH_Lock);
++}
++
++EXPORT_SYMBOL(set_buffer_dirty);
++EXPORT_SYMBOL(clear_buffer_dirty);
++EXPORT_SYMBOL(clear_buffer_dirty_no_log);
++EXPORT_SYMBOL(buffer_dirty);
++EXPORT_SYMBOL(test_set_buffer_dirty);
++EXPORT_SYMBOL(test_clear_buffer_dirty);
++EXPORT_SYMBOL(set_buffer_locked);
++EXPORT_SYMBOL(clear_buffer_locked);
++EXPORT_SYMBOL(buffer_locked);
++EXPORT_SYMBOL(test_set_buffer_locked);
++EXPORT_SYMBOL(test_clear_buffer_locked);
++EXPORT_SYMBOL(wait_on_buffer);
++EXPORT_SYMBOL(lock_buffer);
++EXPORT_SYMBOL(lock_buffer_no_log);
++EXPORT_SYMBOL(unlock_buffer_no_log);
++#endif
++/* END EXPLODE */
+ 
+ static int fsync_buffers_list(spinlock_t *lock, struct list_head *list);
+ static void invalidate_bh_lrus(void);
+@@ -89,6 +207,10 @@
+  */
+ void __wait_on_buffer(struct buffer_head * bh)
+ {
++        /* EXPLODE */
++	EXPLODE_HOOK(bh_wait, bh);
++	/* END EXPLODE */
++
+ 	wait_on_bit(&bh->b_state, BH_Lock, sync_buffer, TASK_UNINTERRUPTIBLE);
+ }
+ 
+@@ -294,7 +416,14 @@
+ 
+ asmlinkage long sys_sync(void)
+ {
++	/* EXPLODE */
++	EXPLODE_SYSCALL_INIT;
++	EXPLODE_SYSCALL_BEFORE(sys_sync);
++	/* END EXPLODE */
+ 	do_sync(1);
++	/* EXPLODE */
++	EXPLODE_SYSCALL_AFTER(sys_sync, 0);
++	/* END EXPLODE */
+ 	return 0;
+ }
+ 
+@@ -376,12 +505,30 @@
+ 
+ asmlinkage long sys_fsync(unsigned int fd)
+ {
+-	return do_fsync(fd, 0);
++	/* EXPLODE */
++        int ret;
++	EXPLODE_SYSCALL_INIT;
++	EXPLODE_SYSCALL_BEFORE(sys_fsync, fd);
++	/* END EXPLODE */
++	ret = do_fsync(fd, 0);
++	/* EXPLODE */
++	EXPLODE_SYSCALL_AFTER(sys_fsync, ret, fd);
++	/* END EXPLODE */
++	return ret;
+ }
+ 
+ asmlinkage long sys_fdatasync(unsigned int fd)
+ {
+-	return do_fsync(fd, 1);
++	/* EXPLODE */
++        int ret;
++	EXPLODE_SYSCALL_INIT;
++	EXPLODE_SYSCALL_BEFORE(sys_fdatasync, fd);
++	/* END EXPLODE */
++	ret = do_fsync(fd, 1);
++	/* EXPLODE */
++	EXPLODE_SYSCALL_AFTER(sys_fdatasync, ret, fd);
++	/* END EXPLODE */
++        return ret;
+ }
+ 
+ /*
+@@ -1497,11 +1644,19 @@
+ struct buffer_head *
+ __bread(struct block_device *bdev, sector_t block, int size)
+ {
++        /* EXPLODE */
++        if (choose(EKM_BREAD, 2))
++                return NULL;
++        else {
++        /* END EXPLODE */
+ 	struct buffer_head *bh = __getblk(bdev, block, size);
+ 
+ 	if (likely(bh) && !buffer_uptodate(bh))
+ 		bh = __bread_slow(bh);
+ 	return bh;
++	/* EXPLODE */
++	}
++	/* END EXPLODE */
+ }
+ EXPORT_SYMBOL(__bread);
+ 
+@@ -1548,9 +1703,17 @@
+  */
+ static inline void discard_buffer(struct buffer_head * bh)
+ {
+-	lock_buffer(bh);
++	/* EXPLODE */
++	/* no need to log, also can't log since unlock won't be logged. */
++	lock_buffer_no_log(bh);
++	/* reverse the two so we don't trace this useless
++	   clear_buffer_dirty */
++	/* lock_buffer(bh);
+ 	clear_buffer_dirty(bh);
++	bh->b_bdev = NULL; */
+ 	bh->b_bdev = NULL;
++	clear_buffer_dirty(bh);
++	/* END EXPLODE */
+ 	clear_buffer_mapped(bh);
+ 	clear_buffer_req(bh);
+ 	clear_buffer_new(bh);
+@@ -1707,7 +1870,11 @@
+ 
+ 	old_bh = __find_get_block_slow(bdev, block);
+ 	if (old_bh) {
+-		clear_buffer_dirty(old_bh);
++		/* EXPLODE */
++		/* don't want to log this clear_buffer_dirty */
++		/*clear_buffer_dirty(old_bh); */
++		clear_buffer_dirty_no_log(old_bh);
++		/* END EXPLODE */
+ 		wait_on_buffer(old_bh);
+ 		clear_buffer_req(old_bh);
+ 		__brelse(old_bh);
+@@ -2763,6 +2930,13 @@
+ 	BUG_ON(!buffer_mapped(bh));
+ 	BUG_ON(!bh->b_end_io);
+ 
++	/* EXPLODE */
++	if(rw == WRITE)
++		EXPLODE_HOOK(bh_write, bh);
++	else if(rw == WRITE_SYNC)
++		EXPLODE_HOOK(bh_write_sync, bh);
++	/* END EXPLODE */
++
+ 	if (buffer_ordered(bh) && (rw == WRITE))
+ 		rw = WRITE_BARRIER;
+ 
+@@ -2848,6 +3022,13 @@
+ 				continue;
+ 			}
+ 		} else {
++		        /* EXPLODE */
++			// simulate a read error
++			if(buffer_uptodate(bh) && !buffer_dirty(bh)
++			   && choose(EKM_BREAD, 2)) {
++				clear_buffer_uptodate(bh);
++			}
++			/* END EXPLODE */
+ 			if (!buffer_uptodate(bh)) {
+ 				bh->b_end_io = end_buffer_read_sync;
+ 				submit_bh(rw, bh);
+diff -ruN linux-2.6.15-orig/fs/jbd/journal.c linux-2.6.15/fs/jbd/journal.c
+--- linux-2.6.15-orig/fs/jbd/journal.c	2006-01-02 22:21:10.000000000 -0500
++++ linux-2.6.15/fs/jbd/journal.c	2009-09-18 21:38:53.000000000 -0400
+@@ -176,8 +176,14 @@
+ 		if (journal->j_commit_sequence != journal->j_commit_request)
+ 			should_sleep = 0;
+ 		transaction = journal->j_running_transaction;
+-		if (transaction && time_after_eq(jiffies,
+-						transaction->t_expires))
++		/* EXPLODE */
++		/* commented out and changed to the one below */
++		/*if (transaction && time_after_eq(jiffies,
++		  transaction->t_expires))*/
++		if (transaction /* time_after_eq(jiffies,
++				   transaction->t_expires)*/)
++		  /* END EXPLODE */
++
+ 			should_sleep = 0;
+ 		if (journal->j_flags & JFS_UNMOUNT)
+  			should_sleep = 0;
+@@ -195,7 +201,10 @@
+ 	 * Were we woken up by a commit wakeup event?
+ 	 */
+ 	transaction = journal->j_running_transaction;
+-	if (transaction && time_after_eq(jiffies, transaction->t_expires)) {
++	/* EXPLODE */
++	/*if (transaction && time_after_eq(jiffies, transaction->t_expires)) {*/
++	if (transaction /* && time_after_eq(jiffies, transaction->t_expires)*/) {
++	/* END EXPLODE */
+ 		journal->j_commit_request = transaction->t_tid;
+ 		jbd_debug(1, "woke because of timeout\n");
+ 	}
+diff -ruN linux-2.6.15-orig/fs/jbd/transaction.c linux-2.6.15/fs/jbd/transaction.c
+--- linux-2.6.15-orig/fs/jbd/transaction.c	2006-01-02 22:21:10.000000000 -0500
++++ linux-2.6.15/fs/jbd/transaction.c	2009-09-18 21:38:53.000000000 -0400
+@@ -1898,9 +1898,15 @@
+ 
+ 		if (offset <= curr_off) {
+ 		 	/* This block is wholly outside the truncation point */
+-			lock_buffer(bh);
++ 			/* EXPLODE */
++ 			/* when bh is freed, its bdev is set to
++ 			   null. so we'll lose the unlock.  */
++ 			/* lock_buffer(bh); */
++ 			lock_buffer_no_log(bh);
+ 			may_free &= journal_unmap_buffer(journal, bh);
+-			unlock_buffer(bh);
++ 			unlock_buffer_no_log(bh);
++ 			/* unlock_buffer(bh); */
++ 			/* END EXPLODE */
+ 		}
+ 		curr_off = next_off;
+ 		bh = next;
+diff -ruN linux-2.6.15-orig/fs/jfs/jfs_logmgr.c linux-2.6.15/fs/jfs/jfs_logmgr.c
+--- linux-2.6.15-orig/fs/jfs/jfs_logmgr.c	2006-01-02 22:21:10.000000000 -0500
++++ linux-2.6.15/fs/jfs/jfs_logmgr.c	2009-09-18 21:38:53.000000000 -0400
+@@ -2161,7 +2161,13 @@
+ 		bio->bi_size = 0;
+ 		lbmIODone(bio, 0, 0);
+ 	} else {
++		/* EXPLODE */
++		ekm_commit_bio = bio;
++		/* END EXPLODE */
+ 		submit_bio(WRITE_SYNC, bio);
++		/* EXPLODE */
++		ekm_commit_bio = NULL;
++		/* END EXPLODE */
+ 		INCREMENT(lmStat.submitted);
+ 	}
+ }
+diff -ruN linux-2.6.15-orig/fs/mpage.c linux-2.6.15/fs/mpage.c
+--- linux-2.6.15-orig/fs/mpage.c	2006-01-02 22:21:10.000000000 -0500
++++ linux-2.6.15/fs/mpage.c	2009-09-18 21:38:53.000000000 -0400
+@@ -555,7 +555,15 @@
+ 		do {
+ 			if (buffer_counter++ == first_unmapped)
+ 				break;
+-			clear_buffer_dirty(bh);
++			/* EXPLODE */
++			/* this clear_dirty is protected by the
++			   page lock.  The page will subsequently
++			   be sutmitted through mpage_bio_submit.
++			   however ekm doesn't log page lock operations
++                           to fix this problem, simply don't log this clear. */
++			/* clear_buffer_dirty(bh); */
++			clear_buffer_dirty_no_log(bh);
++			/* END EXPLODE */
+ 			bh = bh->b_this_page;
+ 		} while (bh != head);
+ 
+diff -ruN linux-2.6.15-orig/fs/namei.c linux-2.6.15/fs/namei.c
+--- linux-2.6.15-orig/fs/namei.c	2006-01-02 22:21:10.000000000 -0500
++++ linux-2.6.15/fs/namei.c	2009-09-18 21:38:53.000000000 -0400
+@@ -1819,6 +1819,11 @@
+ 	int error = 0;
+ 	char * tmp;
+ 
++ 	/* EXPLODE */
++ 	EXPLODE_SYSCALL_INIT;
++ 	EXPLODE_SYSCALL_BEFORE(sys_mkdir, pathname, mode);
++ 	/* END EXPLODE */
++
+ 	tmp = getname(pathname);
+ 	error = PTR_ERR(tmp);
+ 	if (!IS_ERR(tmp)) {
+@@ -1842,6 +1847,10 @@
+ 		putname(tmp);
+ 	}
+ 
++ 	/* EXPLODE */
++ 	EXPLODE_SYSCALL_AFTER(sys_mkdir, error, pathname, mode);
++ 	/* END EXPLODE */
++
+ 	return error;
+ }
+ 
+@@ -1917,6 +1926,11 @@
+ 	if(IS_ERR(name))
+ 		return PTR_ERR(name);
+ 
++ 	/* EXPLODE */
++ 	EXPLODE_SYSCALL_INIT;
++ 	EXPLODE_SYSCALL_BEFORE(sys_rmdir, pathname);
++ 	/* END EXPLODE */
++
+ 	error = path_lookup(name, LOOKUP_PARENT, &nd);
+ 	if (error)
+ 		goto exit;
+@@ -1944,6 +1958,9 @@
+ 	path_release(&nd);
+ exit:
+ 	putname(name);
++         /* EXPLODE */
++ 	EXPLODE_SYSCALL_AFTER(sys_rmdir, error, pathname);
++         /* END EXPLODE */
+ 	return error;
+ }
+ 
+@@ -1995,6 +2012,11 @@
+ 	if(IS_ERR(name))
+ 		return PTR_ERR(name);
+ 
++ 	/* EXPLODE */
++ 	EXPLODE_SYSCALL_INIT;
++ 	EXPLODE_SYSCALL_BEFORE(sys_unlink, pathname);
++	/* END EXPLODE */
++
+ 	error = path_lookup(name, LOOKUP_PARENT, &nd);
+ 	if (error)
+ 		goto exit;
+@@ -2022,6 +2044,11 @@
+ 	path_release(&nd);
+ exit:
+ 	putname(name);
++
++ 	/* EXPLODE */
++ 	EXPLODE_SYSCALL_AFTER(sys_unlink, error, pathname);
++ 	/* END EXPLODE */
++
+ 	return error;
+ 
+ slashes:
+@@ -2060,6 +2087,12 @@
+ 	from = getname(oldname);
+ 	if(IS_ERR(from))
+ 		return PTR_ERR(from);
++
++ 	/* EXPLODE */
++ 	EXPLODE_SYSCALL_INIT;
++ 	EXPLODE_SYSCALL_BEFORE(sys_symlink, oldname, newname);
++ 	/* END EXPLODE */
++
+ 	to = getname(newname);
+ 	error = PTR_ERR(to);
+ 	if (!IS_ERR(to)) {
+@@ -2081,6 +2114,9 @@
+ 		putname(to);
+ 	}
+ 	putname(from);
++ 	/* EXPLODE */
++ 	EXPLODE_SYSCALL_AFTER(sys_symlink, error, oldname, newname);
++ 	/* END EXPLODE */
+ 	return error;
+ }
+ 
+@@ -2142,6 +2178,11 @@
+ 	if (IS_ERR(to))
+ 		return PTR_ERR(to);
+ 
++ 	/* EXPLODE */
++ 	EXPLODE_SYSCALL_INIT;
++ 	EXPLODE_SYSCALL_BEFORE(sys_link, oldname, newname);
++ 	/* END EXPLODE */
++
+ 	error = __user_walk(oldname, 0, &old_nd);
+ 	if (error)
+ 		goto exit;
+@@ -2165,6 +2206,10 @@
+ exit:
+ 	putname(to);
+ 
++ 	/* EXPLODE */
++ 	EXPLODE_SYSCALL_AFTER(sys_link, error, oldname, newname);
++ 	/* END EXPLODE */
++
+ 	return error;
+ }
+ 
+@@ -2399,6 +2444,10 @@
+ 	from = getname(oldname);
+ 	if(IS_ERR(from))
+ 		return PTR_ERR(from);
++ 	/* EXPLODE */
++ 	EXPLODE_SYSCALL_INIT;
++ 	EXPLODE_SYSCALL_BEFORE(sys_rename, oldname, newname);
++ 	/* END EXPLODE */
+ 	to = getname(newname);
+ 	error = PTR_ERR(to);
+ 	if (!IS_ERR(to)) {
+@@ -2406,6 +2455,9 @@
+ 		putname(to);
+ 	}
+ 	putname(from);
++ 	/* EXPLODE */
++ 	EXPLODE_SYSCALL_AFTER(sys_rename, error, oldname, newname);
++ 	/* END EXPLODE */
+ 	return error;
+ }
+ 
+diff -ruN linux-2.6.15-orig/fs/open.c linux-2.6.15/fs/open.c
+--- linux-2.6.15-orig/fs/open.c	2006-01-02 22:21:10.000000000 -0500
++++ linux-2.6.15/fs/open.c	2009-09-18 21:38:53.000000000 -0400
+@@ -279,7 +279,20 @@
+ asmlinkage long sys_truncate(const char __user * path, unsigned long length)
+ {
+ 	/* on 32-bit boxen it will cut the range 2^31--2^32-1 off */
+-	return do_sys_truncate(path, (long)length);
++	long ret;
++
++	/* EXPLODE */
++	EXPLODE_SYSCALL_INIT;
++	EXPLODE_SYSCALL_BEFORE(sys_truncate, path, length);
++	/* END EXPLODE */
++
++	ret = do_sys_truncate(path, (long)length);
++
++	/* EXPLODE */
++	EXPLODE_SYSCALL_AFTER(sys_truncate, ret, path, length);
++	/* END EXPLODE */
++
++	return ret;
+ }
+ 
+ static inline long do_sys_ftruncate(unsigned int fd, loff_t length, int small)
+@@ -327,7 +340,14 @@
+ 
+ asmlinkage long sys_ftruncate(unsigned int fd, unsigned long length)
+ {
+-	return do_sys_ftruncate(fd, length, 1);
++ 	long ret;
++ 	/* EXPLODE */
++ 	EXPLODE_SYSCALL_INIT;
++ 	EXPLODE_SYSCALL_BEFORE(sys_ftruncate, fd, length);
++ 	/* END EXPLODE */
++ 
++ 	ret = do_sys_ftruncate(fd, length, 1);
++        return ret;
+ }
+ 
+ /* LFS versions of truncate are only needed on 32 bit machines */
+@@ -526,6 +546,11 @@
+ 	struct nameidata nd;
+ 	int error;
+ 
++ 	/* EXPLODE */
++ 	EXPLODE_SYSCALL_INIT;
++ 	EXPLODE_SYSCALL_BEFORE(sys_chdir, filename);
++ 	/* END EXPLODE */
++ 
+ 	error = __user_walk(filename, LOOKUP_FOLLOW|LOOKUP_DIRECTORY, &nd);
+ 	if (error)
+ 		goto out;
+@@ -539,6 +564,9 @@
+ dput_and_out:
+ 	path_release(&nd);
+ out:
++	/* EXPLODE */
++	EXPLODE_SYSCALL_AFTER(sys_chdir, error, filename);
++	/* END EXPLODE */
+ 	return error;
+ }
+ 
+@@ -901,7 +929,13 @@
+ 	struct file *f;
+ 
+ 	error = -ENFILE;
++	/* EXPLODE */
++	disable_choose();
++	/* END EXPLODE */
+ 	f = get_empty_filp();
++	/* EXPLODE */
++	enable_choose();
++	/* END EXPLODE */
+ 	if (f == NULL) {
+ 		dput(dentry);
+ 		mntput(mnt);
+@@ -1038,10 +1072,22 @@
+ 
+ asmlinkage long sys_open(const char __user *filename, int flags, int mode)
+ {
++ 	/* EXPLODE */
++  	long ret;
++ 	EXPLODE_SYSCALL_INIT;
++ 	EXPLODE_SYSCALL_BEFORE(sys_open, filename, flags, mode);
++ 	/* END EXPLODE */
++ 
+ 	if (force_o_largefile())
+ 		flags |= O_LARGEFILE;
+ 
+-	return do_sys_open(filename, flags, mode);
++	ret = do_sys_open(filename, flags, mode);
++
++ 	/* EXPLODE */
++ 	EXPLODE_SYSCALL_AFTER(sys_open, ret, filename, flags, mode);
++ 	/* END EXPLODE */
++        return ret;
++        
+ }
+ EXPORT_SYMBOL_GPL(sys_open);
+ 
+@@ -1093,6 +1139,12 @@
+ 	struct files_struct *files = current->files;
+ 	struct fdtable *fdt;
+ 
++	/* EXPLODE */
++        long ret;
++	EXPLODE_SYSCALL_INIT;
++	EXPLODE_SYSCALL_BEFORE(sys_close, fd);
++	/* END EXPLODE */
++
+ 	spin_lock(&files->file_lock);
+ 	fdt = files_fdtable(files);
+ 	if (fd >= fdt->max_fds)
+@@ -1104,10 +1156,18 @@
+ 	FD_CLR(fd, fdt->close_on_exec);
+ 	__put_unused_fd(files, fd);
+ 	spin_unlock(&files->file_lock);
+-	return filp_close(filp, files);
++
++	ret = filp_close(filp, files);
++ 	/* EXPLODE */
++ 	EXPLODE_SYSCALL_AFTER(sys_close, ret, fd);
++ 	/* END EXPLODE */
++        return ret;
+ 
+ out_unlock:
+ 	spin_unlock(&files->file_lock);
++ 	/* EXPLODE */
++ 	EXPLODE_SYSCALL_AFTER(sys_close, -EBADF, fd);
++ 	/* END EXPLODE */
+ 	return -EBADF;
+ }
+ 
+diff -ruN linux-2.6.15-orig/fs/read_write.c linux-2.6.15/fs/read_write.c
+--- linux-2.6.15-orig/fs/read_write.c	2006-01-02 22:21:10.000000000 -0500
++++ linux-2.6.15/fs/read_write.c	2009-09-18 21:45:01.000000000 -0400
+@@ -130,6 +130,11 @@
+ 	struct file * file;
+ 	int fput_needed;
+ 
++	/* EXPLODE */
++	EXPLODE_SYSCALL_INIT;
++	EXPLODE_SYSCALL_BEFORE(sys_lseek, fd, offset, origin);
++	/* END EXPLODE */
++
+ 	retval = -EBADF;
+ 	file = fget_light(fd, &fput_needed);
+ 	if (!file)
+@@ -144,6 +149,9 @@
+ 	}
+ 	fput_light(file, fput_needed);
+ bad:
++	/* EXPLODE */
++	EXPLODE_SYSCALL_AFTER(sys_lseek, retval, fd, offset, origin);
++	/* END EXPLODE */
+ 	return retval;
+ }
+ 
+@@ -157,6 +165,12 @@
+ 	loff_t offset;
+ 	int fput_needed;
+ 
++	/* EXPLODE */
++	EXPLODE_SYSCALL_INIT;
++	EXPLODE_SYSCALL_BEFORE(sys_llseek, fd, offset_high, 
++			       offset_low, result, origin);
++	/* END EXPLODE */
++
+ 	retval = -EBADF;
+ 	file = fget_light(fd, &fput_needed);
+ 	if (!file)
+@@ -178,6 +192,10 @@
+ out_putf:
+ 	fput_light(file, fput_needed);
+ bad:
++	/* EXPLODE */
++	EXPLODE_SYSCALL_AFTER(sys_llseek, retval, fd, offset_high, 
++			      offset_low, result, origin);
++	/* END EXPLODE */
+ 	return retval;
+ }
+ #endif
+@@ -331,6 +349,11 @@
+ 	ssize_t ret = -EBADF;
+ 	int fput_needed;
+ 
++	/* EXPLODE */
++	EXPLODE_SYSCALL_INIT;
++	EXPLODE_SYSCALL_BEFORE(sys_read, fd, buf, count);
++	/* END EXPLODE */
++
+ 	file = fget_light(fd, &fput_needed);
+ 	if (file) {
+ 		loff_t pos = file_pos_read(file);
+@@ -339,6 +362,9 @@
+ 		fput_light(file, fput_needed);
+ 	}
+ 
++	/* EXPLODE */
++	EXPLODE_SYSCALL_AFTER(sys_read, ret, fd, buf, count);
++	/* END EXPLODE */
+ 	return ret;
+ }
+ EXPORT_SYMBOL_GPL(sys_read);
+@@ -349,6 +375,11 @@
+ 	ssize_t ret = -EBADF;
+ 	int fput_needed;
+ 
++	/* EXPLODE */
++	EXPLODE_SYSCALL_INIT;
++	EXPLODE_SYSCALL_BEFORE(sys_write, fd, buf, count);
++	/* END EXPLODE */
++
+ 	file = fget_light(fd, &fput_needed);
+ 	if (file) {
+ 		loff_t pos = file_pos_read(file);
+@@ -356,7 +387,9 @@
+ 		file_pos_write(file, pos);
+ 		fput_light(file, fput_needed);
+ 	}
+-
++	/* EXPLODE */
++	EXPLODE_SYSCALL_AFTER(sys_write, ret, fd, buf, count);
++	/* END EXPLODE */
+ 	return ret;
+ }
+ 
+@@ -387,10 +420,17 @@
+ 	struct file *file;
+ 	ssize_t ret = -EBADF;
+ 	int fput_needed;
++	/* EXPLODE */
++	EXPLODE_SYSCALL_INIT;
++	/* END EXPLODE */
+ 
+ 	if (pos < 0)
+ 		return -EINVAL;
+ 
++	/* EXPLODE */
++	EXPLODE_SYSCALL_BEFORE(sys_pwrite64, fd, buf, count, pos);
++	/* END EXPLODE */
++
+ 	file = fget_light(fd, &fput_needed);
+ 	if (file) {
+ 		ret = -ESPIPE;
+@@ -399,6 +439,9 @@
+ 		fput_light(file, fput_needed);
+ 	}
+ 
++	/* EXPLODE */
++	EXPLODE_SYSCALL_AFTER(sys_pwrite64, ret, fd, buf, count, pos);
++	/* END EXPLODE */
+ 	return ret;
+ }
+ 
+diff -ruN linux-2.6.15-orig/fs/reiserfs/journal.c linux-2.6.15/fs/reiserfs/journal.c
+--- linux-2.6.15-orig/fs/reiserfs/journal.c	2006-01-02 22:21:10.000000000 -0500
++++ linux-2.6.15/fs/reiserfs/journal.c	2009-09-18 21:38:53.000000000 -0400
+@@ -1086,9 +1086,15 @@
+ 		 * will just end up propogating the write error out to
+ 		 * the file system. */
+ 		if (likely(!retval && !reiserfs_is_journal_aborted (journal))) {
++			/* EXPLODE */ 
++			ekm_commit_bh = jl->j_commit_bh;
++			/* END EXPLODE */
+ 			if (buffer_dirty(jl->j_commit_bh))
+ 				BUG();
+ 			mark_buffer_dirty(jl->j_commit_bh) ;
++			/* EXPLODE */
++			ekm_commit_bh = NULL;
++			/* END EXPLODE */
+ 			sync_dirty_buffer(jl->j_commit_bh) ;
+ 		}
+ 	} else
+diff -ruN linux-2.6.15-orig/fs/reiserfs/tail_conversion.c linux-2.6.15/fs/reiserfs/tail_conversion.c
+--- linux-2.6.15-orig/fs/reiserfs/tail_conversion.c	2006-01-02 22:21:10.000000000 -0500
++++ linux-2.6.15/fs/reiserfs/tail_conversion.c	2009-09-18 21:38:53.000000000 -0400
+@@ -143,7 +143,11 @@
+ /* stolen from fs/buffer.c */
+ void reiserfs_unmap_buffer(struct buffer_head *bh)
+ {
+-	lock_buffer(bh);
++    /* EXPLODE */
++    /* lock_buffer(bh) */
++    lock_buffer_no_log(bh) ;
++    /* END EXPLODE */
++
+ 	if (buffer_journaled(bh) || buffer_journal_dirty(bh)) {
+ 		BUG();
+ 	}
+diff -ruN linux-2.6.15-orig/fs/xfs/linux-2.6/xfs_buf.c linux-2.6.15/fs/xfs/linux-2.6/xfs_buf.c
+--- linux-2.6.15-orig/fs/xfs/linux-2.6/xfs_buf.c	2006-01-02 22:21:10.000000000 -0500
++++ linux-2.6.15/fs/xfs/linux-2.6/xfs_buf.c	2009-09-18 22:07:14.000000000 -0400
+@@ -1310,7 +1310,16 @@
+ 
+ submit_io:
+ 	if (likely(bio->bi_size)) {
++		/* EXPLODE */
++		extern xfs_buf_t *ekm_xfs_commit_bp;
++		extern struct bio *ekm_commit_bio;
++		if(ekm_xfs_commit_bp == pb)
++			ekm_commit_bio = bio;
++		/* END EXPLODE */
+ 		submit_bio(rw, bio);
++		/* EXPLODE */
++		ekm_commit_bio = NULL;
++		/* END EXPLODE */
+ 		if (size)
+ 			goto next_chunk;
+ 	} else {
+diff -ruN linux-2.6.15-orig/fs/xfs/xfs_log.c linux-2.6.15/fs/xfs/xfs_log.c
+--- linux-2.6.15-orig/fs/xfs/xfs_log.c	2006-01-02 22:21:10.000000000 -0500
++++ linux-2.6.15/fs/xfs/xfs_log.c	2009-09-18 21:38:53.000000000 -0400
+@@ -1282,6 +1282,9 @@
+  * is added immediately before calling bwrite().
+  */
+ 
++/* EXPLODE */
++xfs_buf_t *ekm_xfs_commit_bp;
++/* END EXPLODE */
+ int
+ xlog_sync(xlog_t		*log,
+ 	  xlog_in_core_t	*iclog)
+@@ -1381,11 +1384,18 @@
+ 	 */
+ 	XFS_BUF_WRITE(bp);
+ 
++ 	/* EXPLODE */
++ 	ekm_xfs_commit_bp = bp;
++ 	/* END EXPLODE */
++ 
+ 	if ((error = XFS_bwrite(bp))) {
+ 		xfs_ioerror_alert("xlog_sync", log->l_mp, bp,
+ 				  XFS_BUF_ADDR(bp));
+ 		return (error);
+ 	}
++ 	/* EXPLODE */
++ 	ekm_xfs_commit_bp = NULL;
++ 	/* END EXPLODE */
+ 	if (split) {
+ 		bp		= iclog->ic_log->l_xbuf;
+ 		ASSERT(XFS_BUF_FSPRIVATE2(bp, unsigned long) ==
+@@ -1419,11 +1429,17 @@
+ 		/* account for internal log which does't start at block #0 */
+ 		XFS_BUF_SET_ADDR(bp, XFS_BUF_ADDR(bp) + log->l_logBBstart);
+ 		XFS_BUF_WRITE(bp);
++ 		/* EXPLODE */
++ 		ekm_xfs_commit_bp = bp;
++ 		/* END EXPLODE */
+ 		if ((error = XFS_bwrite(bp))) {
+ 			xfs_ioerror_alert("xlog_sync (split)", log->l_mp,
+ 					  bp, XFS_BUF_ADDR(bp));
+ 			return (error);
+ 		}
++ 		/* EXPLODE */
++ 		ekm_xfs_commit_bp = NULL;
++ 		/* END EXPLODE */
+ 	}
+ 	return (0);
+ }	/* xlog_sync */
+diff -ruN linux-2.6.15-orig/include/asm-i386/uaccess.h linux-2.6.15/include/asm-i386/uaccess.h
+--- linux-2.6.15-orig/include/asm-i386/uaccess.h	2006-01-02 22:21:10.000000000 -0500
++++ linux-2.6.15/include/asm-i386/uaccess.h	2009-09-18 21:38:53.000000000 -0400
+@@ -81,7 +81,12 @@
+  * checks that the pointer is in the user space range - after calling
+  * this function, memory access functions may still return -EFAULT.
+  */
+-#define access_ok(type,addr,size) (likely(__range_ok(addr,size) == 0))
++/* EXPLODE */
++#include <linux/explode.h>
++/* #define access_ok(type,addr,size) (likely(__range_ok(addr,size) == 0)) */
++#define access_ok(type,addr,size) \
++        (choose(EKM_USERCOPY, 2) == 0 && __range_ok(addr,size) == 0)
++/* END EXPLODE */
+ 
+ /*
+  * The exception table consists of pairs of addresses: the first is the
+diff -ruN linux-2.6.15-orig/include/linux/buffer_head.h linux-2.6.15/include/linux/buffer_head.h
+--- linux-2.6.15-orig/include/linux/buffer_head.h	2006-01-02 22:21:10.000000000 -0500
++++ linux-2.6.15/include/linux/buffer_head.h	2009-09-18 21:38:53.000000000 -0400
+@@ -104,10 +104,30 @@
+  * do something in addition to setting a b_state bit.
+  */
+ BUFFER_FNS(Uptodate, uptodate)
++     /* EXPLODE */
++#define EXPLODE_TRACK_DIRTY_BIT
++#ifndef EXPLODE_TRACK_DIRTY_BIT
+ BUFFER_FNS(Dirty, dirty)
+ TAS_BUFFER_FNS(Dirty, dirty)
+ BUFFER_FNS(Lock, locked)
+ TAS_BUFFER_FNS(Lock, locked)
++#else
++     void set_buffer_dirty(struct buffer_head *bh);
++     void clear_buffer_dirty(struct buffer_head *bh);
++     void clear_buffer_dirty_no_log(struct buffer_head *bh);
++     int buffer_dirty(const struct buffer_head *bh);
++     int test_set_buffer_dirty(struct buffer_head *bh);
++     int test_clear_buffer_dirty(struct buffer_head *bh);
++     void set_buffer_locked(struct buffer_head *bh);
++     void clear_buffer_locked(struct buffer_head *bh);
++     int buffer_locked(const struct buffer_head *bh);
++     int test_set_buffer_locked(struct buffer_head *bh);
++     int test_clear_buffer_locked(struct buffer_head *bh);
++     
++     void lock_buffer_no_log(struct buffer_head *bh);
++     void FASTCALL(unlock_buffer_no_log(struct buffer_head *bh));
++#endif
++     /* END EXPLODE */
+ BUFFER_FNS(Req, req)
+ TAS_BUFFER_FNS(Req, req)
+ BUFFER_FNS(Mapped, mapped)
+@@ -278,6 +298,9 @@
+ 	bh->b_blocknr = block;
+ }
+ 
++/* EXPLODE */
++#ifndef EXPLODE_TRACK_DIRTY_BIT
++/* END EXPLODE */
+ /*
+  * Calling wait_on_buffer() for a zero-ref buffer is illegal, so we call into
+  * __wait_on_buffer() just to trip a debug check.  Because debug code in inline
+@@ -295,6 +318,13 @@
+ 	might_sleep();
+ 	if (test_set_buffer_locked(bh))
+ 		__lock_buffer(bh);
++
+ }
++/* EXPLODE */
++#else
++void wait_on_buffer(struct buffer_head *bh);
++void lock_buffer(struct buffer_head *bh);
++#endif
++/* END EXPLODE */
+ 
+ #endif /* _LINUX_BUFFER_HEAD_H */
+diff -ruN linux-2.6.15-orig/include/linux/explode.h linux-2.6.15/include/linux/explode.h
+--- linux-2.6.15-orig/include/linux/explode.h	1969-12-31 19:00:00.000000000 -0500
++++ linux-2.6.15/include/linux/explode.h	2009-09-18 21:38:53.000000000 -0400
+@@ -0,0 +1,138 @@
++#ifndef __LINUX_EXPLODE_H
++#define __LINUX_EXPLODE_H
++
++/* Choice point identifiers. */
++enum choice_point {
++	EKM_KMALLOC = 1,
++	EKM_USERCOPY = 2,
++	EKM_BREAD = 4,
++	EKM_SCHEDULE = 8,
++	EKM_CACHE_READ = 16,
++	EKM_DISK_READ = 32,
++	EKM_DISK_WRITE = 64,
++};
++int choose(enum choice_point cp, int n_possibilities);
++void enable_choose(void);
++void disable_choose(void);
++int choose_enabled(void);
++
++#include <linux/spinlock.h>
++
++struct buffer_head;
++struct bio;
++struct request;
++#define EKM_BH(state) \
++	void (*bh_##state)(struct buffer_head *bh)
++#define EKM_BIO(state) \
++	void (*bio_##state)(struct bio *bio)
++#define EKM_REQ(state) \
++	void (*req_##state)(struct request *req)
++
++struct explode_kernel_hooks {
++
++	// choose
++	int (*choose)(enum choice_point cp, int n_possibilities);
++	int (*fail_req)(struct request *req);
++
++        void (*log_buffer_record)(int, int, long, int, const char*);
++        
++        /* struct buffer_head record types */
++        EKM_BH(dirty);
++        EKM_BH(clean);
++        EKM_BH(lock);
++        EKM_BH(wait);
++        EKM_BH(unlock);
++        EKM_BH(write);
++        EKM_BH(write_sync);
++#       undef EKM_BH
++
++        /* struct bio record types */
++        EKM_BIO(start_write);
++        EKM_BIO(wait);
++#       undef EKM_BIO
++
++        /* struct request record types */
++        EKM_REQ(write);
++        EKM_REQ(read);
++        EKM_REQ(write_done);
++#       undef EKM_REQ
++
++
++        /* BEGIN SYSCALL */
++/* 
++ *   Everything between BEGIN SYSCALL and END SYSCALL 
++ *   is automatically generated from ./scripts/gen_syscall_log.pl 
++ */
++
++        void (*enter_sys_chdir)(int *entry_lsn, const char __user * filename);
++        void (*exit_sys_chdir)(int *entry_lsn,  long  ret, const char __user * filename);
++        void (*enter_sys_close)(int *entry_lsn, unsigned int  fd);
++        void (*exit_sys_close)(int *entry_lsn,  long  ret, unsigned int  fd);
++        void (*enter_sys_fdatasync)(int *entry_lsn, unsigned int  fd);
++        void (*exit_sys_fdatasync)(int *entry_lsn,  long  ret, unsigned int  fd);
++        void (*enter_sys_fsync)(int *entry_lsn, unsigned int  fd);
++        void (*exit_sys_fsync)(int *entry_lsn,  long  ret, unsigned int  fd);
++        void (*enter_sys_ftruncate)(int *entry_lsn, unsigned int  fd, unsigned long  length);
++        void (*exit_sys_ftruncate)(int *entry_lsn,  long  ret, unsigned int  fd, unsigned long  length);
++        void (*enter_sys_link)(int *entry_lsn, const char  __user * oldname, const char  __user * newname);
++        void (*exit_sys_link)(int *entry_lsn,  long  ret, const char  __user * oldname, const char  __user * newname);
++        void (*enter_sys_llseek)(int *entry_lsn, unsigned int  fd, unsigned long  offset_high, unsigned long  offset_low,  loff_t  __user * result, unsigned int  origin);
++        void (*exit_sys_llseek)(int *entry_lsn,  long  ret, unsigned int  fd, unsigned long  offset_high, unsigned long  offset_low,  loff_t  __user * result, unsigned int  origin);
++        void (*enter_sys_lseek)(int *entry_lsn, unsigned int  fd, off_t  offset, unsigned int  origin);
++        void (*exit_sys_lseek)(int *entry_lsn,  off_t  ret, unsigned int  fd, off_t  offset, unsigned int  origin);
++        void (*enter_sys_mkdir)(int *entry_lsn, const char  __user * pathname, int  mode);
++        void (*exit_sys_mkdir)(int *entry_lsn,  long  ret, const char  __user * pathname, int  mode);
++        void (*enter_sys_open)(int *entry_lsn, const char  __user * filename, int  flags, int  mode);
++        void (*exit_sys_open)(int *entry_lsn,  long  ret, const char  __user * filename, int  flags, int  mode);
++        void (*enter_sys_pwrite64)(int *entry_lsn, unsigned int  fd,  const char  __user * buf, size_t  count, loff_t  pos);
++        void (*exit_sys_pwrite64)(int *entry_lsn,  ssize_t  ret, unsigned int  fd,  const char  __user * buf, size_t  count, loff_t  pos);
++        void (*enter_sys_read)(int *entry_lsn, unsigned int  fd,    char  __user * buf, size_t  count);
++        void (*exit_sys_read)(int *entry_lsn,  ssize_t  ret, unsigned int  fd,    char  __user * buf, size_t  count);
++        void (*enter_sys_rename)(int *entry_lsn, const char  __user * oldname, const char  __user * newname);
++        void (*exit_sys_rename)(int *entry_lsn,  long  ret, const char  __user * oldname, const char  __user * newname);
++        void (*enter_sys_rmdir)(int *entry_lsn, const char  __user * pathname);
++        void (*exit_sys_rmdir)(int *entry_lsn,  long  ret, const char  __user * pathname);
++        void (*enter_sys_symlink)(int *entry_lsn, const char  __user * oldname, const char  __user * newname);
++        void (*exit_sys_symlink)(int *entry_lsn,  long  ret, const char  __user * oldname, const char  __user * newname);
++        void (*enter_sys_sync)(int *entry_lsn);
++        void (*exit_sys_sync)(int *entry_lsn,  long  ret);
++        void (*enter_sys_truncate)(int *entry_lsn, const char  __user * filename, unsigned long  length);
++        void (*exit_sys_truncate)(int *entry_lsn,  long  ret, const char  __user * filename, unsigned long  length);
++        void (*enter_sys_unlink)(int *entry_lsn, const char  __user * pathname);
++        void (*exit_sys_unlink)(int *entry_lsn,  long  ret, const char  __user * pathname);
++        void (*enter_sys_write)(int *entry_lsn, unsigned int  fd,  const char  __user * buf, size_t  count);
++        void (*exit_sys_write)(int *entry_lsn,  ssize_t  ret, unsigned int  fd,  const char  __user * buf, size_t  count);
++        /* END SYSCALL */
++};
++
++extern struct buffer_head *ekm_commit_bh;
++extern struct bio *ekm_commit_bio;
++
++extern struct explode_kernel_hooks ek_hooks;
++extern spinlock_t ek_hooks_lock;
++
++#define EXPLODE_HOOK(fn, args...) \
++	do { \
++		if(ek_hooks.fn) \
++			(ek_hooks.fn) (args); \
++	} while(0)
++
++#define EXPLODE_INVALID_LSN (-1)
++#define EXPLODE_SYSCALL_INIT \
++	int explode_lsn = EXPLODE_INVALID_LSN;
++
++#define EXPLODE_SYSCALL_BEFORE(fn, args...) \
++	do { \
++		if(ek_hooks.enter_##fn) \
++			(ek_hooks.enter_##fn) (&explode_lsn, ##args); \
++	} while(0)
++
++#define EXPLODE_SYSCALL_AFTER(fn, ret, args...) \
++	do { \
++		if(ek_hooks.exit_##fn) \
++			(ek_hooks.exit_##fn) (&explode_lsn, ret, ##args); \
++	} while(0)
++
++int fail_req(struct request *req);
++
++#endif
+diff -ruN linux-2.6.15-orig/include/linux/slab.h linux-2.6.15/include/linux/slab.h
+--- linux-2.6.15-orig/include/linux/slab.h	2006-01-02 22:21:10.000000000 -0500
++++ linux-2.6.15/include/linux/slab.h	2009-09-18 21:41:32.000000000 -0400
+@@ -18,6 +18,10 @@
+ #include	<asm/page.h>		/* kmalloc_sizes.h needs PAGE_SIZE */
+ #include	<asm/cache.h>		/* kmalloc_sizes.h needs L1_CACHE_BYTES */
+ 
++/* EXPLODE */
++#include        <linux/explode.h>
++/* END EXPLODE */
++
+ /* flags for kmem_cache_alloc() */
+ #define	SLAB_NOFS		GFP_NOFS
+ #define	SLAB_NOIO		GFP_NOIO
+@@ -78,6 +82,10 @@
+ 
+ static inline void *kmalloc(size_t size, gfp_t flags)
+ {
++        /* EXPLODE */
++        if (!(flags & __GFP_NOFAIL) && choose(EKM_KMALLOC, 2))
++		return NULL;
++	/* END EXPLODE */
+ 	if (__builtin_constant_p(size)) {
+ 		int i = 0;
+ #define CACHE(x) \
+diff -ruN linux-2.6.15-orig/kernel/explode.c linux-2.6.15/kernel/explode.c
+--- linux-2.6.15-orig/kernel/explode.c	1969-12-31 19:00:00.000000000 -0500
++++ linux-2.6.15/kernel/explode.c	2009-09-18 21:38:53.000000000 -0400
+@@ -0,0 +1,67 @@
++#include <linux/module.h>
++#include <linux/explode.h>
++#include <linux/fs.h>
++#include <linux/blkdev.h>
++
++// all fields should initialized to NULL
++struct explode_kernel_hooks ek_hooks = {0}; 
++spinlock_t ek_hooks_lock = SPIN_LOCK_UNLOCKED;
++EXPORT_SYMBOL(ek_hooks);
++EXPORT_SYMBOL(ek_hooks_lock);
++
++/* Returns the path to take, out of N_POSSIBILITIES
++   possibilities, at choice point CP.  The default choice point
++   is always 0. */
++int
++choose(enum choice_point cp, int n_possibilities) 
++{
++	if(ek_hooks.choose)
++		return ek_hooks.choose(cp, n_possibilities);
++	return 0;
++}
++
++/* must call disable_choose first, then call enable_choose */
++static int choices_enabled = 0;  /* == 0 means enabled */
++void
++enable_choose(void)
++{
++	choices_enabled ++;
++	if(choices_enabled > 0)
++		panic("EXPLODE: enable_choose(%d) > 0!", choices_enabled);
++}
++
++void
++disable_choose(void)
++{
++	if(choices_enabled > 0)
++		panic("EXPLODE: disable_choose(%d) > 0!", choices_enabled);
++        choices_enabled --;
++}
++
++int choose_enabled(void)
++{
++	return choices_enabled == 0;
++}
++
++int fail_req(struct request *req)
++{
++	if(ek_hooks.fail_req)
++		return ek_hooks.fail_req(req);
++	return 0;
++}
++
++#if 0
++#define EKM_SYSCALL(fn, rettype, args...) \
++rettype explode_#fn(args) { \
++EXPLODE_SYSCALL_INIT;
++EXPLODE_SYSCALL_BEFOREINIT;
++}
++#include <linux/explode_def.h>
++#undef EKM_SYSCALL
++#endif
++
++EXPORT_SYMBOL(choose);
++EXPORT_SYMBOL(enable_choose);
++EXPORT_SYMBOL(disable_choose);
++EXPORT_SYMBOL(choose_enabled);
++EXPORT_SYMBOL(fail_req);
+diff -ruN linux-2.6.15-orig/kernel/Makefile linux-2.6.15/kernel/Makefile
+--- linux-2.6.15-orig/kernel/Makefile	2006-01-02 22:21:10.000000000 -0500
++++ linux-2.6.15/kernel/Makefile	2009-09-18 21:38:53.000000000 -0400
+@@ -7,7 +7,7 @@
+ 	    sysctl.o capability.o ptrace.o timer.o user.o \
+ 	    signal.o sys.o kmod.o workqueue.o pid.o \
+ 	    rcupdate.o intermodule.o extable.o params.o posix-timers.o \
+-	    kthread.o wait.o kfifo.o sys_ni.o posix-cpu-timers.o
++	    kthread.o wait.o kfifo.o sys_ni.o posix-cpu-timers.o explode.o
+ 
+ obj-$(CONFIG_FUTEX) += futex.o
+ obj-$(CONFIG_GENERIC_ISA_DMA) += dma.o
+diff -ruN linux-2.6.15-orig/kernel/sys.c linux-2.6.15/kernel/sys.c
+--- linux-2.6.15-orig/kernel/sys.c	2006-01-02 22:21:10.000000000 -0500
++++ linux-2.6.15/kernel/sys.c	2009-09-18 21:38:53.000000000 -0400
+@@ -223,7 +223,7 @@
+ 
+ EXPORT_SYMBOL(unregister_reboot_notifier);
+ 
+-static int set_one_prio(struct task_struct *p, int niceval, int error)
++int set_one_prio(struct task_struct *p, int niceval, int error)
+ {
+ 	int no_nice;
+ 
+diff -ruN linux-2.6.15-orig/Makefile linux-2.6.15/Makefile
+--- linux-2.6.15-orig/Makefile	2006-01-02 22:21:10.000000000 -0500
++++ linux-2.6.15/Makefile	2009-09-19 00:28:53.000000000 -0400
+@@ -1,7 +1,7 @@
+ VERSION = 2
+ PATCHLEVEL = 6
+ SUBLEVEL = 15
+-EXTRAVERSION =
++EXTRAVERSION = -eXplode
+ NAME=Sliding Snow Leopard
+ 
+ # *DOCUMENTATION*
+@@ -353,7 +353,7 @@
+ CPPFLAGS        := -D__KERNEL__ $(LINUXINCLUDE)
+ 
+ CFLAGS 		:= -Wall -Wundef -Wstrict-prototypes -Wno-trigraphs \
+-	  	   -fno-strict-aliasing -fno-common \
++	  	   -fno-strict-aliasing -fno-common -fno-stack-protector \
+ 		   -ffreestanding
+ AFLAGS		:= -D__ASSEMBLY__
+ 
+diff -ruN linux-2.6.15-orig/mm/filemap.c linux-2.6.15/mm/filemap.c
+--- linux-2.6.15-orig/mm/filemap.c	2006-01-02 22:21:10.000000000 -0500
++++ linux-2.6.15/mm/filemap.c	2009-09-18 21:38:53.000000000 -0400
+@@ -1589,6 +1589,14 @@
+ 	int err;
+ repeat:
+ 	page = find_get_page(mapping, index);
++
++	/* EXPLODE */
++	if (page) {
++		if (choose(EKM_CACHE_READ, 2))
++			return ERR_PTR(-ENOMEM);
++	}
++	/* END EXPLODE */
++
+ 	if (!page) {
+ 		if (!cached_page) {
+ 			cached_page = page_cache_alloc_cold(mapping);
+diff -ruN linux-2.6.15-orig/mm/page_alloc.c linux-2.6.15/mm/page_alloc.c
+--- linux-2.6.15-orig/mm/page_alloc.c	2006-01-02 22:21:10.000000000 -0500
++++ linux-2.6.15/mm/page_alloc.c	2009-09-18 21:38:53.000000000 -0400
+@@ -872,6 +872,11 @@
+ 
+ 	might_sleep_if(wait);
+ 
++	/* EXPLODE */
++        if (!(gfp_mask & __GFP_NOFAIL) && choose(EKM_KMALLOC, 2))
++		return NULL;
++        /* END EXPLODE */
++
+ restart:
+ 	z = zonelist->zones;  /* the list of zones suitable for gfp_mask */
+ 
+diff -ruN linux-2.6.15-orig/mm/pdflush.c linux-2.6.15/mm/pdflush.c
+--- linux-2.6.15-orig/mm/pdflush.c	2006-01-02 22:21:10.000000000 -0500
++++ linux-2.6.15/mm/pdflush.c	2009-09-18 21:38:53.000000000 -0400
+@@ -26,8 +26,15 @@
+ /*
+  * Minimum and maximum number of pdflush instances
+  */
++/* EXPLODE */
++#if 0
+ #define MIN_PDFLUSH_THREADS	2
+ #define MAX_PDFLUSH_THREADS	8
++#else
++#define MIN_PDFLUSH_THREADS	0
++#define MAX_PDFLUSH_THREADS	0
++#endif
++/* END EXPLODE */
+ 
+ static void start_one_pdflush_thread(void);
+ 
